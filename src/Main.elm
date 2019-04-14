@@ -1,10 +1,11 @@
 module Main exposing (Model, Msg(..), init, main, update, view)
 
 import Browser
+import Debug
 import Dict exposing (Dict)
-import Html exposing (Html, div, h1, header, img, input, li, p, pre, span, text, ul)
+import Html exposing (Html, div, form, h1, header, img, input, li, option, p, pre, select, span, text, ul)
 import Html.Attributes exposing (placeholder, src, value)
-import Html.Events exposing (onClick, onInput)
+import Html.Events exposing (onClick, onFocus, onInput, onSubmit)
 import Http
 import Json.Decode as D
 import Json.Decode.Pipeline as DP
@@ -19,6 +20,7 @@ import Tuple
 type CitiesModel
     = Error
     | Loading
+    | Empty
     | Cities (List City)
 
 
@@ -47,6 +49,7 @@ type FormSelection
 type alias FormModel =
     { selection : FormSelection
     , value : String
+    , isFocused : Bool
     }
 
 
@@ -60,6 +63,12 @@ type alias Model =
 type Country
     = Germany
     | Poland
+    | Spain
+    | France
+
+
+countryEnum =
+    [ Germany, Poland, Spain, France ]
 
 
 type alias City =
@@ -112,6 +121,31 @@ countryCode country =
         Poland ->
             "PL"
 
+        Spain ->
+            "ES"
+
+        France ->
+            "FR"
+
+
+fromUserString : String -> Maybe Country
+fromUserString str =
+    case str of
+        "Poland" ->
+            Just Poland
+
+        "Germany" ->
+            Just Germany
+
+        "Spain" ->
+            Just Spain
+
+        "France" ->
+            Just France
+
+        _ ->
+            Nothing
+
 
 countryDecoder : D.Decoder Country
 countryDecoder =
@@ -123,6 +157,12 @@ countryDecoder =
 
                 "PL" ->
                     D.succeed Poland
+
+                "ES" ->
+                    D.succeed Spain
+
+                "FR" ->
+                    D.succeed France
 
                 other ->
                     D.fail <| "Unkown country: " ++ other
@@ -167,11 +207,12 @@ getCityInfo location =
 
 initialModel : Model
 initialModel =
-    { cities = Loading
+    { cities = Empty
     , citiesInfo = Dict.empty
     , form =
         { selection = Selected Germany
         , value = ""
+        , isFocused = False
         }
     }
 
@@ -179,7 +220,7 @@ initialModel =
 init : () -> ( Model, Cmd Msg )
 init _ =
     ( initialModel
-    , getPollutedCities Germany
+    , Cmd.none
     )
 
 
@@ -197,7 +238,8 @@ type CitiesInfoMsg
 
 
 type FormMsg
-    = GotCountry Country
+    = GotCountry (Maybe Country)
+    | ToggleFocus
     | InputChanged String
 
 
@@ -215,18 +257,42 @@ updateCities msg =
                 Ok cities ->
                     Cities cities
 
-                Err _ ->
+                Err sth ->
                     Error
 
 
-updateForm : FormMsg -> FormModel -> FormModel
+unWrapCountry : Maybe Country -> Model -> ( Model, Cmd Msg )
+unWrapCountry maybeCountry model =
+    case maybeCountry of
+        Just country ->
+            let
+                oldFormModel =
+                    .form model
+
+                form =
+                    { oldFormModel | selection = Selected country }
+            in
+            ( { model | form = form, cities = Loading }, getPollutedCities country )
+
+        Nothing ->
+            ( { model | cities = Empty }, Cmd.none )
+
+
+updateForm : FormMsg -> Model -> ( Model, Cmd Msg )
 updateForm msg model =
+    let
+        oldFormModel =
+            .form model
+    in
     case msg of
-        GotCountry country ->
-            { model | selection = Selected country }
+        GotCountry maybeCountry ->
+            unWrapCountry maybeCountry model
 
         InputChanged value ->
-            { model | value = value }
+            ( { model | form = { oldFormModel | value = value } }, Cmd.none )
+
+        ToggleFocus ->
+            ( { model | form = { oldFormModel | isFocused = not oldFormModel.isFocused } }, Cmd.none )
 
 
 updateCitiesInfoModel :
@@ -327,7 +393,7 @@ update msg model =
             ( { model | cities = updateCities subMsg }, Cmd.none )
 
         GotFormMsg subMsg ->
-            ( { model | form = updateForm subMsg model.form }, Cmd.none )
+            updateForm subMsg model
 
         GotCitiesInfoMsg subMsg ->
             let
@@ -350,6 +416,9 @@ headerView =
 contentView : Model -> Html Msg
 contentView model =
     case .cities model of
+        Empty ->
+            text ""
+
         Error ->
             span [] [ text "Unable to load the asset" ]
 
@@ -416,20 +485,28 @@ citiesListView cities citiesInfoModel =
     ul [] <| List.map matchCityToModel cities
 
 
-inputView : FormModel -> Html Msg
-inputView model =
+selectView : FormModel -> Html Msg
+selectView model =
     let
-        handleInput value =
+        handleChange value =
             GotFormMsg <| InputChanged value
+
+        handleFocues _ =
+            GotFormMsg <| ToggleFocus
+
+        handleSubmit =
+            GotFormMsg <| GotCountry <| fromUserString <| model.value
     in
-    input [ placeholder "type in city...", onInput handleInput, value model.value ] []
+    form [ onSubmit handleSubmit ]
+        [ input [ placeholder "choose country...", onInput handleChange, value model.value ] []
+        ]
 
 
 view : Model -> Html Msg
 view model =
     div []
         [ headerView
-        , inputView model.form
+        , selectView model.form
         , contentView model
         ]
 
