@@ -4,8 +4,8 @@ import Browser
 import Debug
 import Dict exposing (Dict)
 import Html exposing (Html, div, form, h1, header, img, input, li, option, p, pre, select, span, text, ul)
-import Html.Attributes exposing (placeholder, src, value)
-import Html.Events exposing (onClick, onFocus, onInput, onSubmit)
+import Html.Attributes exposing (class, placeholder, src, value)
+import Html.Events exposing (custom, onBlur, onClick, onFocus, onInput, onSubmit)
 import Http
 import Json.Decode as D
 import Json.Decode.Pipeline as DP
@@ -128,19 +128,35 @@ countryCode country =
             "FR"
 
 
+countryName : Country -> String
+countryName country =
+    case country of
+        Germany ->
+            "Germany"
+
+        Poland ->
+            "Poland"
+
+        Spain ->
+            "Spain"
+
+        France ->
+            "France"
+
+
 fromUserString : String -> Maybe Country
 fromUserString str =
-    case str of
-        "Poland" ->
+    case String.toLower str of
+        "poland" ->
             Just Poland
 
-        "Germany" ->
+        "germany" ->
             Just Germany
 
-        "Spain" ->
+        "spain" ->
             Just Spain
 
-        "France" ->
+        "france" ->
             Just France
 
         _ ->
@@ -239,7 +255,8 @@ type CitiesInfoMsg
 
 type FormMsg
     = GotCountry (Maybe Country)
-    | ToggleFocus
+    | OpenDropdown
+    | CloseDropdown
     | InputChanged String
 
 
@@ -247,6 +264,7 @@ type Msg
     = GotCitiesMsg CitiesMsg
     | GotCitiesInfoMsg CitiesInfoMsg
     | GotFormMsg FormMsg
+    | Noop
 
 
 updateCities : CitiesMsg -> CitiesModel
@@ -270,7 +288,7 @@ unWrapCountry maybeCountry model =
                     .form model
 
                 form =
-                    { oldFormModel | selection = Selected country }
+                    { oldFormModel | selection = Selected country, isFocused = False, value = countryName country }
             in
             ( { model | form = form, cities = Loading }, getPollutedCities country )
 
@@ -291,8 +309,11 @@ updateForm msg model =
         InputChanged value ->
             ( { model | form = { oldFormModel | value = value } }, Cmd.none )
 
-        ToggleFocus ->
-            ( { model | form = { oldFormModel | isFocused = not oldFormModel.isFocused } }, Cmd.none )
+        OpenDropdown ->
+            ( { model | form = { oldFormModel | isFocused = True } }, Cmd.none )
+
+        CloseDropdown ->
+            ( { model | form = { oldFormModel | isFocused = False } }, Cmd.none )
 
 
 updateCitiesInfoModel :
@@ -313,14 +334,14 @@ updateCitiesInfoModel updater location model =
 
 updateCitiesInfo :
     CitiesInfoMsg
-    -> CitiesInfoModel
-    -> ( CitiesInfoModel, Cmd Msg )
+    -> Model
+    -> ( Model, Cmd Msg )
 updateCitiesInfo msg model =
     case msg of
         CitiesDropdownToggled location ->
             let
                 oldCityModel =
-                    findCityInfo location model
+                    findCityInfo location model.citiesInfo
 
                 shouldMakeRequest =
                     case .info oldCityModel of
@@ -347,7 +368,7 @@ updateCitiesInfo msg model =
                     }
 
                 newModel =
-                    Dict.insert location newCityModel model
+                    Dict.insert location newCityModel model.citiesInfo
 
                 cmd =
                     if shouldMakeRequest then
@@ -356,7 +377,7 @@ updateCitiesInfo msg model =
                     else
                         Cmd.none
             in
-            ( newModel, cmd )
+            ( { model | citiesInfo = newModel }, cmd )
 
         GotCitiesInfo location res ->
             case res of
@@ -375,15 +396,17 @@ updateCitiesInfo msg model =
                                 (\cityModel ->
                                     { cityModel | info = info }
                                 )
+                                location
+                                model.citiesInfo
                     in
-                    ( newModel location model, Cmd.none )
+                    ( { model | citiesInfo = newModel }, Cmd.none )
 
                 Err _ ->
                     let
                         newModel =
-                            updateCitiesInfoModel (\cityModel -> { cityModel | info = InfoError })
+                            updateCitiesInfoModel (\cityModel -> { cityModel | info = InfoError }) location model.citiesInfo
                     in
-                    ( newModel location model, Cmd.none )
+                    ( { model | citiesInfo = newModel }, Cmd.none )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -396,11 +419,10 @@ update msg model =
             updateForm subMsg model
 
         GotCitiesInfoMsg subMsg ->
-            let
-                ( citiesInfoUpdate, cmd ) =
-                    updateCitiesInfo subMsg model.citiesInfo
-            in
-            ( { model | citiesInfo = citiesInfoUpdate }, cmd )
+            updateCitiesInfo subMsg model
+
+        _ ->
+            ( model, Cmd.none )
 
 
 
@@ -482,29 +504,64 @@ citiesListView cities citiesInfoModel =
         matchCityToModel city =
             cityView city <| findCityInfo (.city city) citiesInfoModel
     in
-    ul [] <| List.map matchCityToModel cities
+    ul [ class "country-list" ] <| List.map matchCityToModel cities
 
 
 selectView : FormModel -> Html Msg
 selectView model =
     let
-        handleChange value =
+        changeValue value =
             GotFormMsg <| InputChanged value
 
-        handleFocues _ =
-            GotFormMsg <| ToggleFocus
+        openDropdown =
+            GotFormMsg <| OpenDropdown
 
-        handleSubmit =
-            GotFormMsg <| GotCountry <| fromUserString <| model.value
+        setCountry val =
+            GotFormMsg <| GotCountry <| fromUserString <| val
+
+        onClickedOutside =
+            custom "click"
+                (D.succeed
+                    { message = Noop
+                    , stopPropagation = True
+                    , preventDefault = False
+                    }
+                )
+
+        countryListView =
+            ul
+                []
+                (if model.isFocused then
+                    countryEnum
+                        |> List.map countryName
+                        |> List.filter (\name -> String.startsWith (String.toLower model.value) (String.toLower name))
+                        |> List.map (\name -> li [ onClick <| setCountry name ] [ text name ])
+
+                 else
+                    []
+                )
     in
-    form [ onSubmit handleSubmit ]
-        [ input [ placeholder "choose country...", onInput handleChange, value model.value ] []
+    div
+        []
+        [ form
+            [ onSubmit <| setCountry model.value
+            , onClickedOutside
+            ]
+            [ input
+                [ placeholder "choose country..."
+                , onInput changeValue
+                , onFocus openDropdown
+                , value model.value
+                ]
+                []
+            , countryListView
+            ]
         ]
 
 
 view : Model -> Html Msg
 view model =
-    div []
+    div [ onClick <| GotFormMsg <| CloseDropdown, class "app-container" ]
         [ headerView
         , selectView model.form
         , contentView model
