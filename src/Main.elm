@@ -2,8 +2,8 @@ module Main exposing (Model, Msg(..), init, main, update, view)
 
 import Browser
 import Dict exposing (Dict)
-import Html exposing (Html, div, h1, header, img, li, p, pre, span, text, ul)
-import Html.Attributes exposing (src)
+import Html exposing (Html, div, h1, header, img, input, li, p, pre, span, text, ul)
+import Html.Attributes exposing (placeholder, src, value)
 import Html.Events exposing (onClick, onInput)
 import Http
 import Json.Decode as D
@@ -22,20 +22,32 @@ type CitiesModel
     | Cities (List City)
 
 
-type CityInfoModel
+type Info
     = InfoError
     | NoInfo
     | InfoLoading
     | Article WikiArticle
 
 
+type alias CityInfoModel =
+    { info : Info
+    , dropdownToggled : Bool
+    }
+
+
 type alias CitiesInfoModel =
     Dict String CityInfoModel
 
 
-type FormModel
+type FormSelection
     = NotSelected
     | Selected Country
+
+
+type alias FormModel =
+    { selection : FormSelection
+    , value : String
+    }
 
 
 type alias Model =
@@ -121,28 +133,46 @@ countryDecoder =
 getPollutedCities : Country -> Cmd Msg
 getPollutedCities country =
     let
-        url =
-            "https://api.openaq.org/v1/cities?country="
-                ++ countryCode country
-                ++ "&order_by=count&sort=desc&limit=10"
+        options =
+            { expect =
+                Http.expectJson (GotCitiesMsg << GotCities) citiesDecoder
+            , url =
+                "https://api.openaq.org/v1/cities?country="
+                    ++ countryCode country
+                    ++ "&order_by=count&sort=desc&limit=10"
+            }
     in
-    Http.get { url = url, expect = Http.expectJson (GotCitiesMsg << GotCities) citiesDecoder }
+    Http.get
+        options
+
+
+wikiURL : String
+wikiURL =
+    "https://en.wikipedia.org/w/api.php?format=json&action=query&prop=extracts&exintro&explaintext&redirects=1&origin=*&titles="
 
 
 getCityInfo : String -> Cmd Msg
 getCityInfo location =
     let
-        url =
-            "https://en.wikipedia.org/w/api.php?format=json&action=query&prop=extracts&exintro&explaintext&redirects=1&origin=*&titles=" ++ location
+        options =
+            { expect =
+                Http.expectJson (GotCitiesInfoMsg << GotCitiesInfo location) wikiDecoder
+            , url =
+                wikiURL ++ location
+            }
     in
-    Http.get { url = url, expect = Http.expectJson (GotCitiesInfoMsg << GotCitiesInfo location) wikiDecoder }
+    Http.get
+        options
 
 
 initialModel : Model
 initialModel =
     { cities = Loading
     , citiesInfo = Dict.empty
-    , form = Selected Germany
+    , form =
+        { selection = Selected Germany
+        , value = ""
+        }
     }
 
 
@@ -162,12 +192,13 @@ type CitiesMsg
 
 
 type CitiesInfoMsg
-    = CitiesInfoRequested String
+    = CitiesDropdownToggled String
     | GotCitiesInfo String (Result Http.Error (List WikiArticle))
 
 
 type FormMsg
     = GotCountry Country
+    | InputChanged String
 
 
 type Msg
@@ -188,40 +219,105 @@ updateCities msg =
                     Error
 
 
-updateForm : FormMsg -> FormModel
-updateForm msg =
+updateForm : FormMsg -> FormModel -> FormModel
+updateForm msg model =
     case msg of
         GotCountry country ->
-            Selected country
+            { model | selection = Selected country }
+
+        InputChanged value ->
+            { model | value = value }
 
 
-getCityInfoModel : List WikiArticle -> CityInfoModel
-getCityInfoModel cityInfos =
-    case List.head cityInfos of
-        Just cityInfo ->
-            Article cityInfo
+updateCitiesInfoModel :
+    (CityInfoModel -> CityInfoModel)
+    -> String
+    -> CitiesInfoModel
+    -> CitiesInfoModel
+updateCitiesInfoModel updater location model =
+    let
+        oldCityModel =
+            findCityInfo location model
 
-        Nothing ->
-            InfoError
+        newCityModel =
+            updater oldCityModel
+    in
+    Dict.insert location newCityModel model
 
 
-updateCitiesInfo : CitiesInfoMsg -> CitiesInfoModel -> ( CitiesInfoModel, Cmd Msg )
+updateCitiesInfo :
+    CitiesInfoMsg
+    -> CitiesInfoModel
+    -> ( CitiesInfoModel, Cmd Msg )
 updateCitiesInfo msg model =
     case msg of
-        CitiesInfoRequested location ->
-            ( Dict.insert location InfoLoading model, getCityInfo location )
+        CitiesDropdownToggled location ->
+            let
+                oldCityModel =
+                    findCityInfo location model
+
+                shouldMakeRequest =
+                    case .info oldCityModel of
+                        NoInfo ->
+                            True
+
+                        _ ->
+                            False
+
+                shouldToggleDropdown =
+                    not (.dropdownToggled oldCityModel)
+
+                info =
+                    if shouldMakeRequest then
+                        InfoLoading
+
+                    else
+                        .info oldCityModel
+
+                newCityModel =
+                    { oldCityModel
+                        | dropdownToggled = shouldToggleDropdown
+                        , info = info
+                    }
+
+                newModel =
+                    Dict.insert location newCityModel model
+
+                cmd =
+                    if shouldMakeRequest then
+                        getCityInfo location
+
+                    else
+                        Cmd.none
+            in
+            ( newModel, cmd )
 
         GotCitiesInfo location res ->
-            let
-                updater =
-                    case res of
-                        Ok cityInfos ->
-                            Dict.insert location (getCityInfoModel cityInfos)
+            case res of
+                Ok cityInfos ->
+                    let
+                        info =
+                            case List.head cityInfos of
+                                Just cityInfo ->
+                                    Article cityInfo
 
-                        Err _ ->
-                            Dict.insert location InfoError
-            in
-            ( updater model, Cmd.none )
+                                Nothing ->
+                                    InfoError
+
+                        newModel =
+                            updateCitiesInfoModel
+                                (\cityModel ->
+                                    { cityModel | info = info }
+                                )
+                    in
+                    ( newModel location model, Cmd.none )
+
+                Err _ ->
+                    let
+                        newModel =
+                            updateCitiesInfoModel (\cityModel -> { cityModel | info = InfoError })
+                    in
+                    ( newModel location model, Cmd.none )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -231,7 +327,7 @@ update msg model =
             ( { model | cities = updateCities subMsg }, Cmd.none )
 
         GotFormMsg subMsg ->
-            ( { model | form = updateForm subMsg }, Cmd.none )
+            ( { model | form = updateForm subMsg model.form }, Cmd.none )
 
         GotCitiesInfoMsg subMsg ->
             let
@@ -265,29 +361,33 @@ contentView model =
 
 
 cityInfoView : CityInfoModel -> Html Msg
-cityInfoView cityInfoModel =
-    case cityInfoModel of
-        NoInfo ->
-            text "No info about this location"
+cityInfoView infoModel =
+    if .dropdownToggled infoModel then
+        case .info infoModel of
+            NoInfo ->
+                text "No info about this location"
 
-        InfoLoading ->
-            text "Loading..."
+            InfoLoading ->
+                text "Loading..."
 
-        InfoError ->
-            text "Couldn't fetch info"
+            InfoError ->
+                text "Couldn't fetch info"
 
-        Article wikiArticle ->
-            text (.extract wikiArticle)
+            Article wikiArticle ->
+                text (.extract wikiArticle)
+
+    else
+        text ""
 
 
-cityView : CityInfoModel -> City -> Html Msg
-cityView cityInfoModel city =
+cityView : City -> CityInfoModel -> Html Msg
+cityView city cityInfoModel =
     let
         cityName =
             .city city
 
         handleClick =
-            GotCitiesInfoMsg <| CitiesInfoRequested cityName
+            GotCitiesInfoMsg <| CitiesDropdownToggled cityName
     in
     li []
         [ div []
@@ -297,24 +397,39 @@ cityView cityInfoModel city =
         ]
 
 
+findCityInfo : String -> CitiesInfoModel -> CityInfoModel
+findCityInfo location citiesInfoModel =
+    case Dict.get location citiesInfoModel of
+        Just cityInfoModel ->
+            cityInfoModel
+
+        Nothing ->
+            { info = NoInfo, dropdownToggled = False }
+
+
 citiesListView : List City -> CitiesInfoModel -> Html Msg
 citiesListView cities citiesInfoModel =
     let
         matchCityToModel city =
-            case Dict.get (.city city) citiesInfoModel of
-                Just cityInfoModel ->
-                    cityView cityInfoModel city
-
-                Nothing ->
-                    cityView NoInfo city
+            cityView city <| findCityInfo (.city city) citiesInfoModel
     in
     ul [] <| List.map matchCityToModel cities
+
+
+inputView : FormModel -> Html Msg
+inputView model =
+    let
+        handleInput value =
+            GotFormMsg <| InputChanged value
+    in
+    input [ placeholder "type in city...", onInput handleInput, value model.value ] []
 
 
 view : Model -> Html Msg
 view model =
     div []
         [ headerView
+        , inputView model.form
         , contentView model
         ]
 
