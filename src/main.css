@@ -40,6 +40,6 @@ body {
 }
 
 .app-container {
-  background-color: tomato;
+  background-color: rgb(99, 92, 104);
   min-height: 100vh;
 }

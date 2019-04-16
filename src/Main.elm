@@ -3,6 +3,7 @@ module Main exposing (init, main, update, view)
 import Browser
 import Cities exposing (updateCities)
 import CitiesInfo exposing (citiesListView, updateCitiesInfo, updateCitiesInfoModel)
+import Country exposing (..)
 import Debug
 import Dict exposing (Dict)
 import Form exposing (selectView, updateForm)
@@ -12,6 +13,7 @@ import Html.Events exposing (custom, onBlur, onClick, onFocus, onInput, onSubmit
 import Http
 import Json.Decode as D
 import Json.Decode.Pipeline as DP
+import Json.Encode as E
 import List
 import Model exposing (..)
 import Msg exposing (..)
@@ -22,14 +24,26 @@ import Tuple
 ---- PROGRAM ----
 
 
-init : () -> ( Model, Cmd Msg )
-init _ =
+init : E.Value -> ( Model, Cmd Msg )
+init value =
     ( initialModel
     , Cmd.none
     )
 
 
-main : Program () Model Msg
+initialModel : Model
+initialModel =
+    { cities = Empty
+    , citiesInfo = Dict.empty
+    , form =
+        { selection = NotSelected
+        , value = ""
+        , isFocused = False
+        }
+    }
+
+
+main : Program E.Value Model Msg
 main =
     Browser.element
         { view = view

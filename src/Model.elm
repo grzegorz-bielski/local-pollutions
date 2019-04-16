@@ -1,4 +1,4 @@
-module Model exposing (CitiesInfoModel, CitiesModel(..), City, CityInfoModel, FormModel, FormSelection(..), Info(..), Model, WikiArticle, initialModel)
+module Model exposing (CitiesInfoModel, CitiesModel(..), City, CityInfoModel, FormModel, FormSelection(..), Info(..), Model, WikiArticle)
 
 import Country as C
 import Dict exposing (Dict)
@@ -8,18 +8,6 @@ type alias Model =
     { cities : CitiesModel
     , citiesInfo : CitiesInfoModel
     , form : FormModel
-    }
-
-
-initialModel : Model
-initialModel =
-    { cities = Empty
-    , citiesInfo = Dict.empty
-    , form =
-        { selection = Selected C.Germany
-        , value = ""
-        , isFocused = False
-        }
     }
 
 

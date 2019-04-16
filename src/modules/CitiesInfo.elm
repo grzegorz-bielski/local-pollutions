@@ -31,10 +31,7 @@ updateCitiesInfoModel updater location model =
     Dict.insert location newCityModel model
 
 
-updateCitiesInfo :
-    CitiesInfoMsg
-    -> Model
-    -> ( Model, Cmd Msg )
+updateCitiesInfo : CitiesInfoMsg -> Model -> ( Model, Cmd Msg )
 updateCitiesInfo msg model =
     case msg of
         CitiesDropdownToggled location ->
@@ -79,6 +76,10 @@ updateCitiesInfo msg model =
             ( { model | citiesInfo = newModel }, cmd )
 
         GotCitiesInfo location res ->
+            let
+                setInfo info cityModel =
+                    { cityModel | info = info }
+            in
             case res of
                 Ok cityInfos ->
                     let
@@ -92,9 +93,7 @@ updateCitiesInfo msg model =
 
                         newModel =
                             updateCitiesInfoModel
-                                (\cityModel ->
-                                    { cityModel | info = info }
-                                )
+                                (setInfo info)
                                 location
                                 model.citiesInfo
                     in
@@ -103,7 +102,7 @@ updateCitiesInfo msg model =
                 Err _ ->
                     let
                         newModel =
-                            updateCitiesInfoModel (\cityModel -> { cityModel | info = InfoError }) location model.citiesInfo
+                            updateCitiesInfoModel (setInfo InfoError) location model.citiesInfo
                     in
                     ( { model | citiesInfo = newModel }, Cmd.none )
 

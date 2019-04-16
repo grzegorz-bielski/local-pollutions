@@ -1,4 +1,4 @@
-module Form exposing (selectView, unWrapCountry, updateForm)
+port module Form exposing (selectView, unWrapCountry, updateForm)
 
 import Cities exposing (getPollutedCities)
 import Country as C
@@ -6,8 +6,12 @@ import Html exposing (Html, div, form, h1, header, img, input, li, option, p, pr
 import Html.Attributes exposing (class, placeholder, src, value)
 import Html.Events exposing (custom, onBlur, onClick, onFocus, onInput, onSubmit)
 import Json.Decode as D
+import Json.Encode as E
 import Model exposing (..)
 import Msg exposing (..)
+
+
+port store : E.Value -> Cmd msg
 
 
 unWrapCountry : Maybe C.Country -> Model -> ( Model, Cmd Msg )
@@ -15,13 +19,29 @@ unWrapCountry maybeCountry model =
     case maybeCountry of
         Just country ->
             let
+                countryNameStringified =
+                    C.countryName country
+
                 oldFormModel =
                     .form model
 
                 form =
-                    { oldFormModel | selection = Selected country, isFocused = False, value = C.countryName country }
+                    { oldFormModel
+                        | selection = Selected country
+                        , isFocused = False
+                        , value = countryNameStringified
+                    }
+
+                newModel =
+                    { model | form = form, cities = Loading }
+
+                cmds =
+                    Cmd.batch
+                        [ getPollutedCities country
+                        , store (E.string countryNameStringified)
+                        ]
             in
-            ( { model | form = form, cities = Loading }, getPollutedCities country )
+            ( newModel, cmds )
 
         Nothing ->
             ( { model | cities = Empty }, Cmd.none )
@@ -32,19 +52,28 @@ updateForm msg model =
     let
         oldFormModel =
             .form model
+
+        setValue value =
+            { oldFormModel | value = value }
+
+        setFocus value =
+            { oldFormModel | isFocused = value }
+
+        update form =
+            ( { model | form = form }, Cmd.none )
     in
     case msg of
         GotCountry maybeCountry ->
             unWrapCountry maybeCountry model
 
         InputChanged value ->
-            ( { model | form = { oldFormModel | value = value } }, Cmd.none )
+            update <| setValue value
 
         OpenDropdown ->
-            ( { model | form = { oldFormModel | isFocused = True } }, Cmd.none )
+            update <| setFocus True
 
         CloseDropdown ->
-            ( { model | form = { oldFormModel | isFocused = False } }, Cmd.none )
+            update <| setFocus False
 
 
 
@@ -72,14 +101,20 @@ selectView model =
                     }
                 )
 
+        notContainingTheString name =
+            String.startsWith (String.toLower model.value) (String.toLower name)
+
+        contryListItem name =
+            li [ onClick <| setCountry name ] [ text name ]
+
         countryListView =
             ul
                 []
                 (if model.isFocused then
                     C.countryEnum
                         |> List.map C.countryName
-                        |> List.filter (\name -> String.startsWith (String.toLower model.value) (String.toLower name))
-                        |> List.map (\name -> li [ onClick <| setCountry name ] [ text name ])
+                        |> List.filter notContainingTheString
+                        |> List.map contryListItem
 
                  else
                     []
