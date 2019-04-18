@@ -1,7 +1,8 @@
-port module Form exposing (selectView, unWrapCountry, updateForm)
+port module Form exposing (selectView, setCountry, unWrapCountry, updateForm)
 
 import Cities exposing (getPollutedCities)
 import Country as C
+import Debug
 import Html exposing (Html, div, form, h1, header, img, input, li, option, p, pre, select, span, text, ul)
 import Html.Attributes exposing (class, placeholder, src, value)
 import Html.Events exposing (custom, onBlur, onClick, onFocus, onInput, onSubmit)
@@ -11,7 +12,7 @@ import Model exposing (..)
 import Msg exposing (..)
 
 
-port store : E.Value -> Cmd msg
+port store : String -> Cmd msg
 
 
 unWrapCountry : Maybe C.Country -> Model -> ( Model, Cmd Msg )
@@ -38,7 +39,7 @@ unWrapCountry maybeCountry model =
                 cmds =
                     Cmd.batch
                         [ getPollutedCities country
-                        , store (E.string countryNameStringified)
+                        , store countryNameStringified
                         ]
             in
             ( newModel, cmds )
@@ -64,7 +65,7 @@ updateForm msg model =
     in
     case msg of
         GotCountry maybeCountry ->
-            unWrapCountry maybeCountry model
+            Debug.log "called" (unWrapCountry maybeCountry model)
 
         InputChanged value ->
             update <| setValue value
@@ -80,6 +81,11 @@ updateForm msg model =
 -- View
 
 
+setCountry : String -> Msg
+setCountry =
+    GotFormMsg << GotCountry << C.fromUserString
+
+
 selectView : FormModel -> Html Msg
 selectView model =
     let
@@ -88,9 +94,6 @@ selectView model =
 
         openDropdown =
             GotFormMsg <| OpenDropdown
-
-        setCountry val =
-            GotFormMsg <| GotCountry <| C.fromUserString <| val
 
         onClickedOutside =
             custom "click"

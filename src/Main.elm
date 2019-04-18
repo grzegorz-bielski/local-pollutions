@@ -6,7 +6,7 @@ import CitiesInfo exposing (citiesListView, updateCitiesInfo, updateCitiesInfoMo
 import Country exposing (..)
 import Debug
 import Dict exposing (Dict)
-import Form exposing (selectView, updateForm)
+import Form exposing (selectView, setCountry, updateForm)
 import Html exposing (Html, div, form, h1, header, img, input, li, option, p, pre, select, span, text, ul)
 import Html.Attributes exposing (class, placeholder, src, value)
 import Html.Events exposing (custom, onBlur, onClick, onFocus, onInput, onSubmit)
@@ -17,6 +17,7 @@ import Json.Encode as E
 import List
 import Model exposing (..)
 import Msg exposing (..)
+import Task
 import Tuple
 
 
@@ -24,11 +25,30 @@ import Tuple
 ---- PROGRAM ----
 
 
-init : E.Value -> ( Model, Cmd Msg )
+init : D.Value -> ( Model, Cmd Msg )
 init value =
     ( initialModel
-    , Cmd.none
+    , getIniitalCmd value
     )
+
+
+getIniitalCmd : D.Value -> Cmd Msg
+getIniitalCmd value =
+    let
+        valueDecoded =
+            D.decodeValue (D.nullable D.string) value
+    in
+    case valueDecoded of
+        Ok val ->
+            case val of
+                Just str ->
+                    Task.perform setCountry (Task.succeed str)
+
+                Nothing ->
+                    Cmd.none
+
+        Err _ ->
+            Cmd.none
 
 
 initialModel : Model
@@ -43,7 +63,7 @@ initialModel =
     }
 
 
-main : Program E.Value Model Msg
+main : Program D.Value Model Msg
 main =
     Browser.element
         { view = view

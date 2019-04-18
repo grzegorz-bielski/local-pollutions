@@ -9,8 +9,6 @@ const app = Elm.Main.init({
   flags: localStorage.getItem(storageKey)
 });
 
-app.ports.store.subscribe(data =>
-  localStorage.setItem(storageKey, JSON.stringify(data))
-);
+app.ports.store.subscribe(data => localStorage.setItem(storageKey, data));
 
 registerServiceWorker();
